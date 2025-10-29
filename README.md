@@ -34,7 +34,7 @@ O sistema atingiu um alcance estável de até **300 metros**, com RSSI médio de
 ## 👩‍💻 Autores
 - **Maria Eduarda Almeida Rodrigues** – UFC Quixadá  
 - **Francisco Ítalo de Andrade Moraes** – UFC Quixadá  
-- **Antonio Rafael Braga** – UFC Quixadá
+- **Antonio Rafael Braga (orientador)** – UFC Quixadá
 
 ---
 
