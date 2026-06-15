@@ -7,7 +7,7 @@
 #include <LoRa.h>
 
 // DHT instance
-#define DHTPIN 13
+#define DHTPIN 14
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
@@ -62,16 +62,6 @@ void setup()
     while (1) delay(1000);
   }
   Serial.println("LoRa OK");
-
-  // Configuração avançada para longo alcance
-  LoRa.setTxPower(20);
-  LoRa.setSignalBandwidth(62500);
-  LoRa.setSpreadingFactor(12);
-  LoRa.setCodingRate4(8);
-  LoRa.setPreambleLength(16);
-  LoRa.setSyncWord(0xAB);
-  LoRa.disableCrc();
-  LoRa.disableInvertIQ();
 }
 
 void loop() 

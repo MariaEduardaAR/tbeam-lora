@@ -15,16 +15,24 @@
 #define CONFIG_RADIO_BW             125.0
 #endif
 
+// Estatísticas de link
+uint32_t lastSeq = 0;
+uint32_t lostPackets = 0;
+uint32_t receivedPackets = 0;
+unsigned long lastStatsPrint = 0;
+const unsigned long STATS_INTERVAL = 60000; // 1 min
+
+
 #if !defined(USING_SX1276) && !defined(USING_SX1278)
 #error "LoRa example is only allowed to run SX1276/78. For other RF models, please run examples/RadioLibExamples"
 #endif
 
 // ---- WiFi ----
-const char* ssid = "WIFI111D";
-const char* password = "wifi111d";
+const char* ssid = "EDUARDA_WIFI_VIPs";
+const char* password = "eduarda2310";
 
 // ---- MQTT Broker ----
-const char* mqtt_server = "192.168.1.104";
+const char* mqtt_server = "192.168.1.127";
 const uint16_t mqtt_port = 1883;
 const char* mqtt_client_id = "LilygoGateway";
 const char* MQTT_username = NULL;
@@ -53,7 +61,8 @@ bool connectToMQTT(void);
 void MQTTreconnect(void);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void processLoRaPacket(const String& receivedData);
-bool parseSensorData(const String& data, String& id, float& temp, float& hum, int& gas, int& tvoc);
+bool parseSensorData(const String& data, String& id, float& temp,
+                     float& hum, int& gas, int& tvoc, uint32_t& seq);
 void safePublishToBroker(const char* topic, const String& payload);
 
 void connectToWiFi() 
@@ -135,22 +144,40 @@ void safePublishToBroker(const char* topic, const String& payload)
   }
 }
 
-bool parseSensorData(const String& data, String& id, float& temp, float& hum, int& gas, int& tvoc) 
+bool parseSensorData(const String& data, String& id, float& temp,
+                     float& hum, int& gas, int& tvoc, uint32_t& seq)
 {
-  // Valores padrão para indicar erro
+  // valores padrão
   id = "UNKNOWN";
-  temp = -999.0;
-  hum = -999.0;
-  gas = -999;
-  tvoc = -999;
-  
-  // Verifica se contém todos os campos necessários
-  if (data.indexOf("temp=") == -1 || 
-      data.indexOf("hum=") == -1 || 
-      data.indexOf("gas=") == -1 ||
+  temp = hum = -999.0;
+  gas = tvoc = -999;
+  seq = 0;
+
+  if (data.indexOf("temp=") == -1 ||
+      data.indexOf("hum=")  == -1 ||
+      data.indexOf("gas=")  == -1 ||
       data.indexOf("tvoc=") == -1) {
     Serial.println("Campos obrigatórios não encontrados");
     return false;
+  }
+
+  // id
+  int idIndex = data.indexOf("id=");
+  if (idIndex != -1) {
+    int idEnd = data.indexOf(";", idIndex);
+    if (idEnd == -1) idEnd = data.length();
+    id = data.substring(idIndex + 3, idEnd);
+    id.trim();
+  }
+
+  // seq (opcional mas desejado)
+  int seqIndex = data.indexOf("seq=");
+  if (seqIndex != -1) {
+    int seqEnd = data.indexOf(";", seqIndex);
+    if (seqEnd == -1) seqEnd = data.length();
+    String seqStr = data.substring(seqIndex + 4, seqEnd);
+    seqStr.trim();
+    seq = (uint32_t) seqStr.toInt();
   }
   
   try {
@@ -240,7 +267,15 @@ void processLoRaPacket(const String& receivedData)
   int gasValue;
   int tvocValue;
   
-  if (parseSensorData(receivedData, id, temperatureC, humidity, gasValue, tvocValue)) {
+  uint32_t seq;
+
+  
+  if (parseSensorData(receivedData, id, temperatureC, humidity, gasValue, tvocValue, seq)) {
+    receivedPackets++;
+    if (lastSeq != 0 && seq > lastSeq + 1) {
+        lostPackets += (seq - lastSeq - 1);
+    }
+    lastSeq = seq;
     // Publica no MQTT
     safePublishToBroker(TOPIC_ID, id);
     safePublishToBroker(TOPIC_TEMP, String(temperatureC, 1)); // 1 casa decimal
@@ -298,17 +333,17 @@ void setup()
     }
   }
   
-  // Configuração do LoRa
-  // Configuração do LoRa (para longo alcance)
-  LoRa.setTxPower(20);
-  LoRa.setSignalBandwidth(62500);
-  LoRa.setSpreadingFactor(12);
-  LoRa.setCodingRate4(8);
-  LoRa.setPreambleLength(16);
-  LoRa.setSyncWord(0xAB);
-  LoRa.disableCrc();
+  //CONFIGURAÇÃO LORA (IGUAL AO NODE-SENSOR)
+  LoRa.setTxPower(17);
+  LoRa.setSignalBandwidth(125E3);   // 125 kHz
+  LoRa.setSpreadingFactor(7);       // SF7
+  LoRa.setCodingRate4(5);           // 4/5
+  LoRa.setPreambleLength(8);
+  LoRa.setSyncWord(0x34);
+  LoRa.enableCrc();
   LoRa.disableInvertIQ();
   LoRa.receive();
+
   
   Serial.println("LoRa inicializado com sucesso");
   lastReconnectAttempt = millis();
@@ -366,6 +401,20 @@ void loop()
     
     // Retorna para modo de recepção
     LoRa.receive();
+
+  }
+
+  // Estatísticas de PER a cada 1 min
+  if (currentTime - lastStatsPrint > STATS_INTERVAL) {
+    lastStatsPrint = currentTime;
+
+    uint32_t total = receivedPackets + lostPackets;
+    float per = 0.0;
+    if (total > 0) {
+      per = (float)lostPackets / (float)total * 100.0;
+    }
+    Serial.printf("Stats: recv=%lu lost=%lu PER=%.2f%%\n",
+                  receivedPackets, lostPackets, per);
   }
   
   // Pequeno delay para evitar sobrecarga
